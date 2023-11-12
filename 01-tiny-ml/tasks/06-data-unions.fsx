@@ -62,13 +62,14 @@ let rec evaluate (ctx:VariableContext) e =
   | TupleGet(b, e) -> failwith "implemented in step 5"
 
   | Match(e, v, e1, e2) ->
-      // TODO: Implement pattern matching. Note you need to
-      // assign the right value to the variable of name 'v'!
-      failwith "not implemented"
+    match evaluate ctx e with 
+    | ValCase(b, res) -> 
+      match b with 
+      | true -> evaluate (ctx.Add((v), res)) e1
+      | false -> evaluate (ctx.Add((v), res)) e2
+    | _ -> failwith "e must be a Case expression"
 
-  | Case(b, e) ->
-      // TODO: Create a union value.
-      failwith "not implemented"
+  | Case(b, e) -> ValCase(b, evaluate ctx e)
 
 // ----------------------------------------------------------------------------
 // Test cases

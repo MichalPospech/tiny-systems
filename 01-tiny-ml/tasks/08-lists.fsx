@@ -55,16 +55,49 @@ let rec evaluate (ctx:VariableContext) e =
       | _ -> failwith ("unbound variable: " + v)
 
   // NOTE: You have the following from before
-  | Unary(op, e) -> failwith "implemented in step 2"
-  | If(econd, etrue, efalse) -> failwith "implemented in step 2"
-  | Lambda(v, e) -> failwith "implemented in step 3"
-  | Application(e1, e2) -> failwith "implemented in step 3"
-  | Let(v, e1, e2) -> failwith "implemented in step 4"
-  | Tuple(e1, e2) -> failwith "implemented in step 5"
-  | TupleGet(b, e) -> failwith "implemented in step 5"
-  | Match(e, v, e1, e2) -> failwith "implemented in step 6"
-  | Case(b, e) -> failwith "implemented in step 6"
-  | Recursive(v, e1, e2) -> failwith "implemented in step 7"
+    | Unary(op, e) ->
+        let v = evaluate ctx e in
+
+        match v with
+        | ValNum intVal ->
+            match op with
+            | "-" -> ValNum(-intVal)
+            | _ -> failwith "unsupported unary operator"
+        | _ -> failwith "expression must evaluate to NumVal"
+    | If(cond, t, f) ->
+        match evaluate ctx cond with
+        | ValNum(1) -> evaluate ctx t
+        | ValNum(_) -> evaluate ctx f
+        | _ -> failwith "Condition must evaluate to a numerical value"
+    | Lambda(v, e: Expression) -> ValClosure(v, e, ctx)
+    | Application(e1, e2) ->
+        match evaluate ctx e1 with
+        | ValClosure(var, e, capturedCtx) -> evaluate (capturedCtx.Add(var, Lazy(evaluate ctx e2))) e
+        | _ -> failwith "e1 must be variable closure"
+    | Let(v, e1, e2) -> evaluate ctx (Application(Lambda(v, e2), e1))
+    | Tuple(e1, e2) -> ValTuple(evaluate ctx e1, evaluate ctx e2)
+    | TupleGet(b, e) ->
+        match evaluate ctx e with
+        | ValTuple(v1, v2) ->
+            match b with
+            | true -> v1
+            | false -> v2
+        | _ -> failwith (e.ToString()+ " must be a tuple")
+    | Match(e, v, e1, e2) ->
+        match evaluate ctx e with
+        | ValCase(b, res) ->
+            match b with
+            | true -> evaluate (ctx.Add((v), lazy(res))) e1
+            | false -> evaluate (ctx.Add((v), lazy(res))) e2
+        | _ -> failwith "e must be a Case expression"
+    | Case(b, e) -> ValCase(b, evaluate ctx e)
+
+    | Recursive(v, e1, e2) ->
+        // TODO: Implement recursion for 'let rec v = e1 in e2'.
+        // (In reality, this will only work if 'e1' is a function
+        // but the case can be implemented without assuming that).
+        let rec factClosure = lazy evaluate (ctx.Add(v,factClosure)) e1
+        evaluate (ctx.Add(v, factClosure)) e2
 
   // NOTE: This is so uninteresting I did this for you :-)
   | Unit -> ValUnit
@@ -127,5 +160,20 @@ evaluate Map.empty em
 //     | Case2(Unit) -> Case2(Unit))
 //   in map (fun y -> y + (-2)) l
 //
-let ef = failwith "not implemented"
+let ef = 
+  Recursive("filter",
+    Lambda("f", Lambda("l", 
+      Match(
+        Variable("l"), "x",
+        Case(true, Tuple(
+          Application(Variable "f", TupleGet(true, Variable "x")),
+          Application(Application(Variable "filter", Variable "f"), 
+            TupleGet(false, Variable "x"))
+        )),
+        Case(false, Unit)
+      )
+    )),
+    Application(Application(Variable "filter", 
+      Lambda("y", Binary("+", Variable "y", Unary("-", Constant 3)))), el)
+  )
 evaluate Map.empty ef
