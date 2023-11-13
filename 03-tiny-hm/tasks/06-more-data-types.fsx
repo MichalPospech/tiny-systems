@@ -31,19 +31,40 @@ type Type =
 // ----------------------------------------------------------------------------
 
 let rec occursCheck vcheck ty = 
-  // TODO: Add case for 'TyUnion' (same as 'TyFunction')
-  failwith "not implemented"
+  match ty with
+  | TyBool|TyNumber -> false
+  | TyList(ty) -> occursCheck vcheck ty
+  | TyVariable(var) -> var.Equals vcheck
+  | TyFunction(t1, t2) | TyTuple(t1,t2) | TyUnion(t1,t2) -> occursCheck vcheck t1 || occursCheck vcheck t2
 
-let rec substType (subst:Map<_, _>) t1 = 
-  // TODO: Add case for 'TyUnion' (same as 'TyFunction')
-  failwith "not implemented"
+let rec substType (subst:Map<_, _>) ty = 
+  match ty with
+  | TyBool | TyNumber -> ty
+  | TyVariable(v) -> if subst.ContainsKey v then subst.[v] else TyVariable(v)
+  | TyList(tv) -> TyList(substType subst tv)
+  | TyFunction(t1,t2) -> TyFunction(substType subst t1, substType subst t2)
+  | TyTuple(t1,t2) -> TyTuple(substType subst t1, substType subst t2)
+  | TyUnion(t1,t2) -> TyUnion(substType subst t1, substType subst t2)
+
 
 let substConstrs subst cs = 
-  failwith "implemented in step 2"
+  List.map (fun cons -> substType subst (fst cons), substType subst (snd cons)) cs 
  
-let rec solve constraints =
-  // TODO: Add case for 'TyUnion' (same as 'TyFunction')
-  failwith "not implemented"
+let rec solve cs =
+  match cs with 
+  | [] -> Map.empty
+  | (TyNumber, TyNumber)::cs | (TyBool,TyBool)::cs -> solve cs
+  | (t, TyVariable(tv))::cs | (TyVariable(tv), t)::cs ->
+    if occursCheck tv t then failwith "Cannot be solved (occurs check)"
+    let cons = substConstrs (Map [(tv, t )])  cs
+    let subs = solve cons
+    let t = substType subs t 
+    subs.Add(tv, t)
+  | (TyList(t1), TyList(t2))::cs -> solve ((t1,t2)::cs)
+  | (TyFunction(ta1, tr1), TyFunction(ta2,tr2))::cs -> solve ((ta1, ta2)::(tr1,tr2)::cs)
+  | (TyTuple(t11,t12), TyTuple(t21,t22))::cs -> solve ((t11,t21)::(t12,t22)::cs)
+  | (TyUnion(t11,t12), TyUnion(t21,t22))::cs -> solve ((t11,t21)::(t12,t22)::cs)
+  | (_,_)::cs -> failwith "Substitution not possible"
 
 
 // ----------------------------------------------------------------------------
@@ -58,31 +79,95 @@ let newTyVariable =
 
 let rec generate (ctx:TypingContext) e = 
   match e with 
-  | Constant _ -> failwith "implemented in step 3"
-  | Binary("+", e1, e2) -> failwith "implemented in step 3"
-  | Binary("=", e1, e2) -> failwith "implemented in step 3"
-  | Binary(op, _, _) -> failwith "implemented in step 3"
-  | Variable v -> failwith "implemented in step 3"
-  | If(econd, etrue, efalse) -> failwith "implemented in step 3"
+  | Constant _ -> 
+      // NOTE: If the expression is a constant number, we return
+      // its type (number) and generate no further constraints.
+      TyNumber, []
 
-  | Let(v, e1, e2) -> failwith "implemented in step 4"
-  | Lambda(v, e) -> failwith "implemented in step 4"
-  | Application(e1, e2) -> failwith "implemented in step 4"
+  | Binary("+", e1, e2) | Binary("*", e1, e2) ->
+      // NOTE: Recursively process sub-expressions, collect all the 
+      // constraints and ensure the types of 'e1' and 'e2' are 'TyNumber'
+      let t1, s1 = generate ctx e1
+      let t2, s2 = generate ctx e2
+      TyNumber, s1 @ s2 @ [ t1, TyNumber; t2, TyNumber ]
 
-  | Tuple(e1, e2) -> failwith "implemented in step 5"
-  | TupleGet(b, e) -> failwith "implemented in step 5"
+  | Binary("=", e1, e2) ->
+      // TODO: Similar to the case for '+' but returns 'TyBool'
+      let t1, s1 = generate ctx e1
+      let t2, s2 = generate ctx e2
+      TyBool, s1 @ s2 @ [ t1, TyNumber; t2, TyNumber ]
+
+
+  | Binary(op, _, _) ->
+      failwithf "Binary operator '%s' not supported." op
+
+  | Variable v -> 
+      // TODO: Just get the type of the variable from 'ctx' here.
+      ctx.[v] ,[]
+  | If(econd, etrue, efals) ->
+      // TODO: Call generate recursively on all three sub-expressions,
+      // collect all constraints and add a constraint that (i) the type
+      // of 'econd' is 'TyBool' and (ii) types of 'etrue' and 'efalse' match.
+      let tcond, scond = generate ctx econd
+      let ttrue, strue = generate ctx etrue
+      let tfals, sfals = generate ctx efals
+      ttrue, scond @ strue @ sfals @ [tcond, TyBool ; ttrue , tfals]
+
+  | Let(v, e1, e2) ->
+      // TODO: Generate type & constraints for 'e1' first and then
+      // add the generated type to the typing context for 't2'.
+    let t1, s1 = generate ctx e1
+    let t2, s2 = generate (ctx.Add (v, t1)) e2
+    t2, s1 @ s2 
+  
+  | Lambda(v, e) ->
+      let targ = newTyVariable()
+      // TODO: We do not know what the type of the variable 'v' is, so we 
+      // generate a new type variable and add that to the 'ctx'. The
+      // resulting type will be 'TyFunction' with 'targ' as argument type.
+      let t, s =  generate (ctx.Add(v, targ)) e
+      TyFunction(targ, t), s 
+
+  | Application(e1, e2) -> 
+      // TODO: Tricky case! We cannot inspect the generated type of 'e1'
+      // to see what the argument/return type of the function is. Instead,
+      // we have to generate a new type variable and add a constraint.
+
+    let t2, s2 = generate ctx e2
+    let t1, s1 = generate ctx e1
+    let tres = newTyVariable()
+    tres, s1 @ s2 @ [TyFunction(t2, tres), t1]
+
+  | Tuple(e1, e2) ->
+      // TODO: Easy. The returned type is composed of the types of 'e1' and 'e2'.
+    let t1, s1 = generate ctx e1
+    let t2, s2 = generate ctx e2
+    TyTuple(t1,t2), s1 @ s2
+
+  | TupleGet(b, e) ->
+    let t, s = generate ctx e
+    t, s @ [TyTuple(newTyVariable(), newTyVariable()), t]
 
   | Match(e, v, e1, e2) ->
       // TODO: As with tuples, we know the type of 'e' is some union,
       // but we do not know what. We need new type variables. When 
       // checking 'e1' and 'e2', add variable 'v' to the context!
       // Also note that the return types of 'e1' and 'e2' have to match.
-      failwith "not implemented"
+    let tu1 = newTyVariable()
+    let tu2 = newTyVariable()
+    let t, s = generate ctx e
+    let t1, s1 = generate (ctx.Add ((v, tu1))) e1
+    let t2, s2 = generate (ctx.Add ((v, tu2))) e2
+    t1, s @ s1 @ s2 @ [TyUnion(tu1, tu2), t; t1, t2]
 
   | Case(b, e) ->
-      // TODO: Here, we know the type of 'e' is the type of one of 
-      // the cases, but we still need a new type variable for the other.
-      failwith "not implemented"
+    // TODO: Here, we know the type of 'e' is the type of one of 
+    // the cases, but we still need a new type variable for the other.
+    let t, s = generate ctx e
+    let newTyVar = newTyVariable()
+    match b with 
+    | true -> TyUnion(t,newTyVar), s
+    | false -> TyUnion(newTyVar, t), s 
   
 
 // ----------------------------------------------------------------------------
