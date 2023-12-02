@@ -177,7 +177,7 @@ let rec generate (ctx:TypingContext) e =
 let infer e = 
   let typ, constraints = generate Map.empty e 
   let subst = solve constraints
-  let typ = substType (Map.ofList subst) typ
+  let typ = substType subst typ
   typ
 
 // Both cases are constrained because 'if' returns either one or the other
