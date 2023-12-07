@@ -3,83 +3,228 @@
 // ----------------------------------------------------------------------------
 module TinyBASIC
 
+open System
+
 type Value =
-  | StringValue of string
-  | NumberValue of int
-  | BoolValue of bool
+    | StringValue of string
+    | NumberValue of int
+    | BoolValue of bool
 
-type Expression = 
-  | Const of Value
-  | Function of string * Expression list
-  | Variable of string
+type Expression =
+    | Const of Value
+    | Function of string * Expression list
+    | Variable of string
 
-type Command = 
-  | Run 
-  | Goto of int
-  | Assign of string * Expression
-  | If of Expression * Command
-  | Clear
-  | Poke of Expression * Expression * Expression
-  | Print of Expression list
-  | Input of string 
-  | Stop
-  // NOTE: Add the GOSUB jump and RETURN commands
-  | GoSub of int
-  | Return
+type Command =
+    | Run
+    | Goto of int
+    | Assign of string * Expression
+    | If of Expression * Command
+    | Clear
+    | Poke of Expression * Expression * Expression
+    | Print of Expression list
+    | Input of string
+    | Stop
+    // NOTE: Add the GOSUB jump and RETURN commands
+    | GoSub of int
+    | Return
 
-type State = 
-  { Program : list<int * Command> 
-    Variables : Map<string, Value> 
-    Random : System.Random 
-    // TODO: Add a stack of line numbers to return to (list<int>)
-    }
+type State =
+    { Program: list<int * Command>
+      Variables: Map<string, Value>
+      Random: System.Random
+      Stack: list<int> }
 
 // ----------------------------------------------------------------------------
 // Utilities
 // ----------------------------------------------------------------------------
 
-let printValue value = failwith "implemented in steps 1 and 3"
-let getLine state line = failwith "implemented in step 1"
-let addLine state (line, cmd) = failwith "implemented in step 2"
+let printValue value =
+    match value with
+    | StringValue s -> printfn "%s" s
+    | BoolValue b -> printfn (if b then "true" else "false")
+    | NumberValue n -> printfn "%d" n
+
+let printValues values = List.map printValue values
+
+
+let getLine (state: State) (line: int) =
+    List.exactlyOne (List.filter (fun (l, _) -> l = line) state.Program)
+
+let addLine state (line, cmd) =
+    { Program =
+        state.Program
+        |> List.filter (fun (l, _) -> l <> line)
+        |> (@)[(line, cmd)]
+        |> List.sortBy (fun (l, _) -> l)
+      Variables = state.Variables
+      Random = state.Random
+      Stack = state.Stack }
+
+let addVariable state name value =
+    { Program = state.Program
+      Variables = state.Variables.Add(name, value)
+      Random = state.Random
+      Stack = state.Stack }
+
+let pushStack state line =
+    { Program = state.Program
+      Variables = state.Variables
+      Random = state.Random
+      Stack = [ line ] @ state.Stack }
+
+let popStack state =
+    (state.Stack.Head,
+     { Program = state.Program
+       Variables = state.Variables
+       Random = state.Random
+       Stack = List.skip 1 state.Stack })
 
 // ----------------------------------------------------------------------------
 // Evaluator
 // ----------------------------------------------------------------------------
 
-let binaryRelOp f args = 
-  match args with 
-  | [NumberValue a; NumberValue b] -> BoolValue(f a b)
-  | _ -> failwith "expected two numerical arguments"
+// NOTE: Helper function that makes it easier to implement '>' and '<' operators
+// (takes a function 'int -> int -> bool' and "lifts" it into 'Value -> Value -> Value')
+let binaryRelOp f args =
+    match args with
+    | [ NumberValue a; NumberValue b ] -> BoolValue(f a b)
+    | _ -> failwith "expected two numerical arguments"
 
-let rec evalExpression expr = 
-  failwith "implemented in steps 1, 3, 4 and 5"
+
+let binaryNumOp f args =
+    match args with
+    | [ NumberValue a; NumberValue b ] -> NumberValue(f a b)
+    | _ -> failwith "expected two numerical arguments"
+
+let binaryBoolOp f args =
+    match args with
+    | [ BoolValue a; BoolValue b ] -> BoolValue(f a b)
+    | _ -> failwith "expected two bool arguments"
+
+let rnd state args =
+    match args with
+    | [ NumberValue n ] -> NumberValue(state.Random.Next(n))
+    | _ -> failwith "Expected one numeric argument"
+
+
+// ----------------------------------------------------------------------------
+// Evaluator
+// ----------------------------------------------------------------------------
+
+let rec evalExpression state expr =
+    // TODO: Add support for 'RND(N)' which returns a random number in range 0..N-1
+    // and for binary operators ||, <, > (and the ones you have already, i.e., - and =).
+    // To add < and >, you can use the 'binaryRelOp' helper above. You can similarly
+    // add helpers for numerical operators and binary Boolean operators to make
+    // your code a bit nicer.
+    match expr with
+    | Const(c) -> c
+    | Variable(v) -> state.Variables.[v]
+    | Function(f, exs) ->
+        let evaluatedExs = List.map (evalExpression state) exs
+
+        match f with
+        | "-" -> binaryNumOp (-) evaluatedExs
+        | "=" -> binaryRelOp (=) evaluatedExs
+        | "MIN" -> binaryNumOp (min) evaluatedExs
+        | "<" -> binaryRelOp (<) evaluatedExs
+        | ">" -> binaryRelOp (>) evaluatedExs
+        | "||" -> binaryBoolOp (||) evaluatedExs
+        | "RND" -> rnd state evaluatedExs
+        | s -> failwithf "unknown function %s" s
+
 
 let rec runCommand state (line, cmd) =
-  match cmd with 
-  | Run ->
-      let first = List.head state.Program    
-      runCommand state first
+    let goto state line = runCommand state (getLine state line)
 
-  | Print(expr) -> failwith "implemented in step 1"
-  | Goto(line) -> failwith "implemented in step 1"
-  | Assign _ | If _ -> failwith "implemented in step 3"
-  | Clear | Poke _ -> failwith "implemented in step 4"
-  | Input _ | Stop _ -> failwith "implemente in step 5"
+    match cmd with
+    | Print(exprs) ->
+        printValues (List.map (evalExpression state) exprs) |> ignore
+        runNextLine state line
+    | Run ->
+        let first = List.head state.Program
+        runCommand state first
+    | Goto(line) ->
+        // TODO: Find the right line of the program using 'getLine' and call
+        // 'runCommand' recursively on the found line to evaluate it.
+        goto state line
+    // TODO: Implement assignment and conditional. Assignment should run the
+    // next line after setting the variable value. 'If' is a bit trickier:
+    // * 'L1: IF TRUE THEN GOTO <L2>' will continue evaluating on line 'L2'
+    // * 'L1: IF FALSE THEN GOTO <L2>' will continue on line after 'L1'
+    // * 'L1: IF TRUE THEN PRINT "HI"' will print HI and continue on line after 'L1'
+    //
+    // HINT: If <e> evaluates to TRUE, you can call 'runCommand' recursively with
+    // the command in the 'THEN' branch and the current line as the line number.
+    | Assign(v, e) -> runNextLine (addVariable state v (evalExpression state e)) line
+    | If(cond, comm) ->
+        let condRes = evalExpression state cond
 
-  // TODO: GOSUB needs to store the current line number on the stack for
-  // RETURN (before behaving as GOTO); RETURN pops a line number from the
-  // stack and runs the line after the one from the stack.
-  | GoSub _ | Return -> failwith "not implemented"
+        match condRes with
+        | BoolValue(b) ->
+            if b then
+                runCommand state (line, comm)
+            else
+                runNextLine state line
+        | _ -> failwith "cond does not evaluate to boolean"
 
-and runNextLine state line = failwith "implemented in step 1"
+    // TODO: Implement two commands for screen manipulation
+    | Clear ->
+        Console.Clear()
+        runNextLine state line
 
+    | Poke(x, y, e) ->
+        match [ evalExpression state x, evalExpression state y, evalExpression state e ] with
+        | [ NumberValue(x), NumberValue(y), StringValue(e) ] ->
+            Console.SetCursorPosition(x, y)
+            System.Console.Write(e)
+            runNextLine state line
+        | _ -> failwith "expected 2 numeric arguments"
+
+    // TODO: Input("X") should read a number from the console using Console.RadLine
+    // and parse it as a number using Int32.TryParse (retry if the input is wrong)
+    // Stop terminates the execution (you can just return the 'state'.)
+    | Input var ->
+        let mutable succ = false
+        let mutable num = ref 0
+
+        while (not succ) do
+            let s = Console.ReadLine()
+            succ <- Int32.TryParse(s, num)
+
+        runNextLine (addVariable state var (NumberValue(num.Value))) line
+    | Stop -> state
+    | GoSub(n) -> goto (pushStack state line) n
+    | Return ->
+        let line, state = popStack state
+        goto state line
+
+and runNextLine state line =
+    let res =
+        state.Program
+        |> List.sortBy (fun (l, _) -> l)
+        |> List.skipWhile (fun (l, _) -> l <= line)
+        |> List.tryHead
+
+    match res with
+    | Some(r) -> runCommand state r
+    | None -> state
 // ----------------------------------------------------------------------------
 // Interactive program editing
 // ----------------------------------------------------------------------------
 
-let runInput state (line, cmd) = failwith "implemented in step 2"
-let runInputs state cmds = failwith "implemented in step 2"
+let runInput state (line, cmd) =
+    match line with
+    | Some(l) -> addLine state (l, cmd)
+    | None -> runCommand state (System.Int32.MaxValue, cmd)
 
+
+let runInputs state cmds =
+    // TODO: Apply all the specified commands to the program state using 'runInput'.
+    // This is a one-liner if you use 'List.fold' which has the following type:
+    //   ('State -> 'T -> 'State) -> 'State -> list<'T> -> 'State
+    List.fold runInput state cmds
 // ----------------------------------------------------------------------------
 // Test cases
 // ----------------------------------------------------------------------------
@@ -87,34 +232,42 @@ let runInputs state cmds = failwith "implemented in step 2"
 let num v = Const(NumberValue v)
 let str v = Const(StringValue v)
 let var n = Variable n
-let (.||) a b = Function("||", [a; b])
-let (.<) a b = Function("<", [a; b])
-let (.>) a b = Function(">", [a; b])
-let (.-) a b = Function("-", [a; b])
-let (.=) a b = Function("=", [a; b])
+let (.||) a b = Function("||", [ a; b ])
+let (.<) a b = Function("<", [ a; b ])
+let (.>) a b = Function(">", [ a; b ])
+let (.-) a b = Function("-", [ a; b ])
+let (.=) a b = Function("=", [ a; b ])
 let (@) s args = Function(s, args)
 
 // TODO: Add empty stack of return line numbers here
-let empty = { Program = []; Variables = Map.empty; Random = System.Random() }
+let empty =
+    { Program = []
+      Variables = Map.empty
+      Random = System.Random()
+      Stack = [] }
 
-let nim = 
-  [ Some 10, Assign("M", num 20)
-    Some 20, Assign("U", num 1)
-    Some 30, GoSub(100)
-    Some 40, Assign("U", num 2)
-    Some 50, GoSub(100)
-    Some 60, Goto(20) 
-    Some 100, Print [ str "THERE ARE "; var "M"; str " MATCHES LEFT\n" ]
-    Some 110, Print [ str "PLAYER "; var "U"; str ": YOU CAN TAKE BETWEEN 1 AND "; 
-      Function("MIN", [num 5; var "M"]); str " MATCHES\n" ]
-    Some 120, Print [ str "HOW MANY MATCHES DO YOU TAKE?\n" ]
-    Some 130, Input("P")
-    Some 140, If((var "P" .< num 1) .|| (var "P" .> num 5) .|| (var "P" .> var "M"), Goto 120)
-    Some 150, Assign("M", var "M" .- var "P")
-    Some 160, If(var "M" .= num 0, Goto 200)
-    Some 170, Return    
-    Some 200, Print [str "PLAYER "; var "U"; str " WINS!"]
-    None, Run
-  ]
+let nim =
+    [ Some 10, Assign("M", num 20)
+      Some 20, Assign("U", num 1)
+      Some 30, GoSub(100)
+      Some 40, Assign("U", num 2)
+      Some 50, GoSub(100)
+      Some 60, Goto(20)
+      Some 100, Print [ str "THERE ARE "; var "M"; str " MATCHES LEFT\n" ]
+      Some 110,
+      Print
+          [ str "PLAYER "
+            var "U"
+            str ": YOU CAN TAKE BETWEEN 1 AND "
+            Function("MIN", [ num 5; var "M" ])
+            str " MATCHES\n" ]
+      Some 120, Print [ str "HOW MANY MATCHES DO YOU TAKE?\n" ]
+      Some 130, Input("P")
+      Some 140, If((var "P" .< num 1) .|| (var "P" .> num 5) .|| (var "P" .> var "M"), Goto 120)
+      Some 150, Assign("M", var "M" .- var "P")
+      Some 160, If(var "M" .= num 0, Goto 200)
+      Some 170, Return
+      Some 200, Print [ str "PLAYER "; var "U"; str " WINS!" ]
+      None, Run ]
 
 runInputs empty nim |> ignore
