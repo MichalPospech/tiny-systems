@@ -35,7 +35,13 @@ and substituteSubst (newSubst: Map<string, Term>) (subst: list<string * Term>) =
     List.map (fun (v, t) -> v, substitute newSubst t) subst
 
 
+<<<<<<< HEAD
 and substituteTerms subst (terms: list<Term>) = List.map (substitute subst) terms
+=======
+let substituteTerms (subst:Map<string, Term>) (terms:list<Term>) = 
+  // TODO: Apply substitution 'subst' to all the terms in 'terms'
+  failwith "not implemented"
+>>>>>>> upstream/master
 
 let rec unifyLists l1 l2 =
     // TODO: Modify the implementation to use 'substituteTerms' and 'substituteSubst'.

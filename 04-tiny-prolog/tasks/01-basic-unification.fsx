@@ -30,6 +30,7 @@ let rule p b = { Head = p; Body = b }
 
 let rec unifyLists l1 l2 : option<list<string * Term>> =
 
+<<<<<<< HEAD
     match l1, l2 with
     | [], [] -> Some []
     | h1 :: t1, h2 :: t2 ->
@@ -46,6 +47,17 @@ and unify t1 t2 =
     | Variable(x), y
     | y, Variable(x) -> Some [ (x, y) ]
     | _, _ -> None
+=======
+and unify t1 t2 : option<list<string * Term>> = 
+  match t1, t2 with 
+  | _ ->
+      // TODO: Add all the necessary cases here!
+      // * For matching atoms, return empty substitution
+      // * For matching predicates, return the result of 'unifyLists'
+      // * For variable and any term, return a new substitution
+      // * For anything else, return None (failed to unify) 
+      failwith "not implemented"
+>>>>>>> upstream/master
 
 // ----------------------------------------------------------------------------
 // Basic unification tests
